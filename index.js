@@ -1,3 +1,4 @@
+
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
@@ -10,6 +11,8 @@ const TARGET_URL = process.env.TARGET_URL || 'https://play.geforcenow.com';
 
 app.use(cors());
 app.use(express.json());
+
+// ==================== ОБЯЗАТЕЛЬНЫЕ МАРШРУТЫ ====================
 
 // 1. ГЛАВНАЯ СТРАНИЦА (убьет "Not Found")
 app.get('/', (req, res) => {
@@ -49,7 +52,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// 3. WebSocket маскировка (для обхода блокировок)
+// 3. WebSocket маскировка
 app.use('/live', createProxyMiddleware({
   target: TARGET_URL,
   changeOrigin: true,
@@ -67,6 +70,17 @@ app.get('/api/*', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// 5. 404 handler
+app.use((req, res) => {
+  res.status(404).send(`
+    <div style="padding: 40px; text-align: center;">
+      <h1>404 - Страница не найдена</h1>
+      <p>Запрошенный путь <code>${req.path}</code> не существует.</p>
+      <p><a href="/">Вернуться на главную</a></p>
+    </div>
+  `);
 });
 
 app.listen(PORT, () => {
