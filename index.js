@@ -1,128 +1,74 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const TARGET_URL = process.env.TARGET_URL || 'https://api.example.com';
+const TARGET_URL = process.env.TARGET_URL || 'https://play.geforcenow.com';
 
-// Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Request logging middleware
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
+// 1. ГЛАВНАЯ СТРАНИЦА (убьет "Not Found")
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head><title>GeForce NOW Proxy</title><meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body { font-family: Arial; margin: 40px; background: #0f0f23; color: #00ff00; }
+      .container { max-width: 800px; margin: 0 auto; background: #1a1a2e; padding: 30px; border-radius: 15px; }
+      .status { background: #162447; padding: 20px; border-radius: 10px; margin: 20px 0; }
+      .btn { background: #00d4aa; color: white; padding: 12px 24px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+    </style></head>
+    <body>
+      <div class="container">
+        <h1>🚀 Прокси-сервер GeForce NOW</h1>
+        <div class="status">
+          <p><strong>Статус:</strong> <span style="color:#00ff88">ОНЛАЙН</span></p>
+          <p><strong>Время:</strong> ${new Date().toLocaleString()}</p>
+          <p><strong>Адрес:</strong> ${req.protocol}://${req.get('host')}</p>
+        </div>
+        <p>Этот сервер перенаправляет запросы на: <code>${TARGET_URL}</code></p>
+        <p><a href="/health"><button class="btn">Проверить работоспособность</button></a></p>
+      </div>
+    </body>
+    </html>
+  `);
 });
 
-// Health check endpoint
+// 2. HEALTH CHECK
 app.get('/health', (req, res) => {
-  res.status(200).json({
+  res.json({
     status: 'OK',
-    message: 'Proxy server is running',
-    timestamp: new Date().toISOString()
+    message: 'GeForce NOW Proxy Server is running',
+    timestamp: new Date().toISOString(),
+    target: TARGET_URL
   });
 });
 
-// Proxy endpoint for GET requests
+// 3. WebSocket маскировка (для обхода блокировок)
+app.use('/live', createProxyMiddleware({
+  target: TARGET_URL,
+  changeOrigin: true,
+  ws: true,
+  pathRewrite: { '^/live': '' },
+  logLevel: 'silent'
+}));
+
+// 4. Простые прокси-эндпоинты
 app.get('/api/*', async (req, res) => {
   try {
-    const path = req.params[0];
-    const url = `${TARGET_URL}/${path}`;
-    const queryString = Object.keys(req.query).length ? `?${new URLSearchParams(req.query).toString()}` : '';
-    
-    console.log(`Proxying GET request to: ${url}${queryString}`);
-    
-    const response = await axios.get(`${url}${queryString}`, {
-      headers: {
-        ...req.headers,
-        'X-Forwarded-For': req.ip,
-        'X-Original-URL': req.originalUrl
-      }
-    });
-    
+    const url = `${TARGET_URL}/${req.params[0]}`;
+    const response = await axios.get(url);
     res.status(response.status).json(response.data);
   } catch (error) {
-    console.error('Proxy error:', error.message);
-    res.status(error.response?.status || 500).json({
-      error: 'Proxy request failed',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Proxy endpoint for POST requests
-app.post('/api/*', async (req, res) => {
-  try {
-    const path = req.params[0];
-    const url = `${TARGET_URL}/${path}`;
-    
-    console.log(`Proxying POST request to: ${url}`);
-    
-    const response = await axios.post(url, req.body, {
-      headers: {
-        ...req.headers,
-        'X-Forwarded-For': req.ip,
-        'X-Original-URL': req.originalUrl
-      }
-    });
-    
-    res.status(response.status).json(response.data);
-  } catch (error) {
-    console.error('Proxy error:', error.message);
-    res.status(error.response?.status || 500).json({
-      error: 'Proxy request failed',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// Root endpoint
-app.get('/', (req, res) => {
-  res.status(200).json({
-    name: 'GeForce NOW Proxy Server',
-    version: '1.0.0',
-    description: 'A Node.js Express-based proxy server for GeForce NOW',
-    endpoints: {
-      health: '/health',
-      api: '/api/*'
-    }
-  });
-});
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    error: 'Not Found',
-    message: `The endpoint ${req.method} ${req.path} does not exist`,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Error handler
-app.use((err, req, res, next) => {
-  console.error('Server error:', err);
-  res.status(500).json({
-    error: 'Internal Server Error',
-    message: err.message,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Start server
 app.listen(PORT, () => {
-  console.log(`\n========================================`);
-  console.log(`Proxy Server Started`);
-  console.log(`========================================`);
-  console.log(`Server running at http://localhost:${PORT}`);
-  console.log(`Target URL: ${TARGET_URL}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`========================================\n`);
+  console.log(`✅ Сервер запущен на порту ${PORT}`);
 });
-
-module.exports = app;
